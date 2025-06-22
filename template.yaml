@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Text Generation Service
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.9
+    Environment:
+      Variables:
+        USAGE_TABLE_NAME: !Ref UsageTable
+  Api:
+    Cors:
+      AllowMethods: "'POST, GET, OPTIONS'"
+      AllowHeaders: "'Content-Type'"
+      AllowOrigin: "'*'"
+
+Resources:
+  # Lambda Functions
+  TextGenerationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: chatbot/
+      Handler: app.lambda_handler
+      Events:
+        GenerateText:
+          Type: Api
+          Properties:
+            Path: /generate
+            Method: post
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - comprehend:DetectSentiment
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cloudwatch:PutMetricData
+              Resource: "*"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsageTable
+
+  UsageStatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: chatbot/
+      Handler: app.get_usage_stats
+      Events:
+        GetUsage:
+          Type: Api
+          Properties:
+            Path: /usage/{user_id}
+            Method: get
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsageTable
+
+  # DynamoDB Table for Usage Tracking
+  UsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TextGenerationUsage
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+Outputs:
+  TextGenerationApi:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    
+  UsageTable:
+    Description: "DynamoDB table for usage tracking"
+    Value: !Ref UsageTable
